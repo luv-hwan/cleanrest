@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CleanRest — 공공화장실 안내</title>
+
+<!-- ✅ 여기에 본인의 카카오 JavaScript 키를 넣으세요 -->
+<script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=4b14365793025f30f86f1871bb018416&libraries=services,clusterer"></script>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Noto+Sans+SC:wght@400;500&family=Noto+Sans+JP:wght@400;500&display=swap');
+
+  :root {
+    --blue: #1A56A8;
+    --blue-light: #E6F1FB;
+    --blue-dark: #0C447C;
+    --green: #1D9E75;
+    --green-light: #E1F5EE;
+    --amber: #BA7517;
+    --amber-light: #FAEEDA;
+    --red: #E24B4A;
+    --gray-50: #F8F8F6;
+    --gray-100: #F0EFEB;
+    --gray-300: #CCCBC6;
+    --gray-500: #888780;
+    --gray-700: #444441;
+    --text: #1A1A1A;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --shadow: 0 2px 12px rgba(0,0,0,0.10);
+    --shadow-lg: 0 4px 24px rgba(0,0,0,0.14);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    height: 100%;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 14px;
+    color: var(--text);
+    background: var(--gray-50);
+    overscroll-behavior: none;
+  }
+
+  /* ── 앱 레이아웃 ── */
+  #app { display: flex; flex-direction: column; height: 100vh; max-width: 480px; margin: 0 auto; background: #fff; position: relative; overflow: hidden; }
+
+  /* ── 헤더 ── */
+  #header {
+    background: var(--blue);
+    padding: 12px 16px 10px;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+    z-index: 10;
+  }
+  #header-logo { color: #fff; font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+  #header-logo span { font-size: 11px; font-weight: 400; opacity: .75; margin-left: 6px; }
+  #lang-btn {
+    background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.3);
+    color: #fff; border-radius: 20px; padding: 4px 12px; font-size: 12px; cursor: pointer;
+    font-family: inherit;
+  }
+  #lang-btn:active { background: rgba(255,255,255,0.3); }
+
+  /* ── 화면 전환 ── */
+  .screen { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+  .screen.active { display: flex; }
+
+  /* ── 홈 화면: 지도 ── */
+  #map-container { flex: 1; position: relative; }
+  #map { width: 100%; height: 100%; }
+
+  /* 검색바 (지도 위 오버레이) */
+  #search-overlay {
+    position: absolute; top: 12px; left: 12px; right: 12px; z-index: 5;
+  }
+  #search-box {
+    background: #fff; border-radius: 24px; padding: 10px 16px;
+    display: flex; align-items: center; gap: 8px;
+    box-shadow: var(--shadow-lg); border: 1px solid var(--gray-300);
+  }
+  #search-box input {
+    border: none; outline: none; flex: 1; font-size: 14px; font-family: inherit; color: var(--text);
+    background: transparent;
+  }
+  #search-box input::placeholder { color: var(--gray-500); }
+  .search-icon { color: var(--gray-500); font-size: 16px; }
+
+  /* 필터 칩 */
+  #filter-bar {
+    position: absolute; top: 64px; left: 0; right: 0; z-index: 5;
+    display: flex; gap: 8px; padding: 0 12px;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  #filter-bar::-webkit-scrollbar { display: none; }
+  .filter-chip {
+    background: #fff; border: 1px solid var(--gray-300); border-radius: 20px;
+    padding: 5px 14px; font-size: 12px; color: var(--gray-700); cursor: pointer;
+    white-space: nowrap; flex-shrink: 0; font-family: inherit;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    transition: all .15s;
+  }
+  .filter-chip.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+  /* 내 위치 버튼 */
+  #my-loc-btn {
+    position: absolute; bottom: 16px; right: 16px; z-index: 5;
+    width: 44px; height: 44px; border-radius: 50%;
+    background: #fff; border: 1px solid var(--gray-300);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: var(--shadow); cursor: pointer; font-size: 20px;
+  }
+
+  /* 하단 목록 패널 */
+  #list-panel {
+    background: #fff; border-top: 1px solid var(--gray-100);
+    max-height: 52%;
+    display: flex; flex-direction: column;
+    flex-shrink: 0;
+  }
+  #list-handle {
+    display: flex; flex-direction: column; align-items: center; padding: 8px 0 4px;
+    cursor: pointer; flex-shrink: 0;
+  }
+  #list-handle-bar { width: 36px; height: 4px; background: var(--gray-300); border-radius: 2px; }
+  #list-head {
+    padding: 0 16px 8px; font-size: 12px; color: var(--gray-500); font-weight: 500; flex-shrink: 0;
+  }
+  #toilet-list { overflow-y: auto; flex: 1; padding: 0 12px 8px; }
+
+  .toilet-card {
+    background: #fff; border: 1px solid var(--gray-100); border-radius: var(--radius);
+    padding: 12px; margin-bottom: 8px; display: flex; gap: 10px; align-items: flex-start;
+    cursor: pointer; transition: box-shadow .15s;
+  }
+  .toilet-card:active { box-shadow: var(--shadow); }
+  .tc-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
+  .dot-green { background: var(--green); }
+  .dot-amber { background: var(--amber); }
+  .dot-red { background: var(--red); }
+  .tc-body { flex: 1; min-width: 0; }
+  .tc-name { font-size: 14px; font-weight: 500; margin-bottom: 2px; }
+  .tc-addr { font-size: 12px; color: var(--gray-500); margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tc-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+  .tag { font-size: 11px; background: var(--gray-100); color: var(--gray-700); padding: 2px 7px; border-radius: 4px; }
+  .tag-blue { background: var(--blue-light); color: var(--blue-dark); }
+  .tc-right { text-align: right; flex-shrink: 0; }
+  .tc-dist { font-size: 13px; font-weight: 500; color: var(--blue); }
+  .tc-stars { font-size: 11px; color: var(--amber); margin-top: 2px; }
+
+  /* ── 상세 화면 ── */
+  #detail-screen { overflow-y: auto; }
+  #detail-img {
+    background: var(--gray-100); height: 180px;
+    display: flex; align-items: center; justify-content: center;
+    position: relative; flex-shrink: 0;
+    color: var(--gray-300); font-size: 48px;
+  }
+  #back-btn {
+    position: absolute; top: 12px; left: 12px;
+    width: 36px; height: 36px; border-radius: 50%;
+    background: #fff; border: 1px solid var(--gray-300);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 18px; box-shadow: var(--shadow);
+  }
+  #detail-body { padding: 16px; }
+  #detail-name { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  #detail-addr { font-size: 13px; color: var(--gray-500); margin-bottom: 10px; }
+  #detail-rating { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  #detail-rating .stars { color: var(--amber); font-size: 16px; }
+  #detail-rating .num { font-size: 16px; font-weight: 700; }
+  #detail-rating .cnt { font-size: 12px; color: var(--gray-500); }
+
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+  .info-cell { background: var(--gray-50); border-radius: var(--radius-sm); padding: 10px 12px; }
+  .info-label { font-size: 11px; color: var(--gray-500); margin-bottom: 3px; }
+  .info-val { font-size: 13px; font-weight: 500; }
+  .info-val.ok { color: var(--green); }
+  .info-val.no { color: var(--gray-500); }
+
+  .nav-btns { display: flex; gap: 8px; margin-bottom: 16px; }
+  .nav-btn {
+    flex: 1; padding: 11px 0; border-radius: var(--radius-sm);
+    font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    transition: opacity .15s;
+  }
+  .nav-btn:active { opacity: .8; }
+  .nav-btn-kakao { background: #FEE500; border: 1px solid #E6CF00; color: #3C1E1E; }
+  .nav-btn-naver { background: #03C75A; border: 1px solid #02b050; color: #fff; }
+
+  .section-title { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+  .review-item { border-bottom: 1px solid var(--gray-100); padding-bottom: 10px; margin-bottom: 10px; }
+  .review-item:last-child { border-bottom: none; }
+  .review-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .review-flag { font-size: 14px; }
+  .review-stars { color: var(--amber); font-size: 12px; }
+  .review-date { font-size: 11px; color: var(--gray-500); }
+  .review-text { font-size: 13px; color: var(--gray-700); line-height: 1.5; }
+  .review-trans { font-size: 12px; color: var(--gray-500); margin-top: 3px; font-style: italic; }
+
+  #write-review-btn {
+    width: 100%; padding: 13px; background: var(--blue); color: #fff;
+    border: none; border-radius: var(--radius); font-size: 14px; font-weight: 500;
+    cursor: pointer; font-family: inherit; margin-top: 8px;
+    transition: background .15s;
+  }
+  #write-review-btn:active { background: var(--blue-dark); }
+
+  /* ── 리뷰 작성 화면 ── */
+  #review-screen { overflow-y: auto; }
+  #review-header {
+    background: var(--blue); padding: 12px 16px;
+    display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  }
+  #review-back { color: #fff; font-size: 20px; cursor: pointer; }
+  #review-title { color: #fff; font-size: 16px; font-weight: 500; }
+  #review-body { padding: 16px; flex: 1; }
+
+  .review-form-section { margin-bottom: 20px; }
+  .review-form-label { font-size: 13px; font-weight: 500; color: var(--gray-700); margin-bottom: 10px; }
+
+  .star-rating-row { display: flex; gap: 8px; }
+  .star-group { flex: 1; background: var(--gray-50); border-radius: var(--radius-sm); padding: 10px 8px; text-align: center; }
+  .star-group-label { font-size: 11px; color: var(--gray-500); margin-bottom: 6px; }
+  .star-group-stars { display: flex; justify-content: center; gap: 2px; }
+  .star-btn { font-size: 18px; cursor: pointer; color: var(--gray-300); transition: color .1s; user-select: none; }
+  .star-btn.active { color: var(--amber); }
+
+  .photo-row { display: flex; gap: 8px; }
+  .photo-thumb {
+    width: 72px; height: 72px; border-radius: var(--radius-sm); object-fit: cover;
+    border: 1px solid var(--gray-300);
+  }
+  .photo-add {
+    width: 72px; height: 72px; border-radius: var(--radius-sm);
+    border: 1.5px dashed var(--gray-300); display: flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 24px; color: var(--gray-500);
+  }
+
+  #review-text-input {
+    width: 100%; border: 1px solid var(--gray-300); border-radius: var(--radius-sm);
+    padding: 10px 12px; font-size: 14px; font-family: inherit; color: var(--text);
+    resize: none; outline: none; min-height: 80px; background: var(--gray-50);
+  }
+  #review-text-input:focus { border-color: var(--blue); background: #fff; }
+  .trans-notice { font-size: 12px; color: var(--gray-500); margin-top: 6px; }
+
+  #submit-review-btn {
+    width: 100%; padding: 14px; background: var(--blue); color: #fff;
+    border: none; border-radius: var(--radius); font-size: 15px; font-weight: 500;
+    cursor: pointer; font-family: inherit; margin-top: 8px;
+  }
+  #submit-review-btn:active { background: var(--blue-dark); }
+
+  /* ── 하단 네비 ── */
+  #navbar {
+    display: flex; background: #fff; border-top: 1px solid var(--gray-100);
+    flex-shrink: 0; z-index: 10;
+  }
+  .nb-item {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    padding: 8px 4px 10px; gap: 3px; cursor: pointer; color: var(--gray-500);
+    font-size: 10px; font-weight: 500; transition: color .15s;
+  }
+  .nb-item.active { color: var(--blue); }
+  .nb-icon { font-size: 22px; }
+
+  /* ── 제보 화면 ── */
+  #report-screen { overflow-y: auto; }
+  #report-header {
+    background: var(--blue); padding: 12px 16px;
+    display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  }
+  #report-title { color: #fff; font-size: 16px; font-weight: 500; }
+  #report-body { padding: 16px; }
+  .form-group { margin-bottom: 16px; }
+  .form-group label { display: block; font-size: 13px; font-weight: 500; color: var(--gray-700); margin-bottom: 6px; }
+  .form-group input, .form-group textarea, .form-group select {
+    width: 100%; border: 1px solid var(--gray-300); border-radius: var(--radius-sm);
+    padding: 10px 12px; font-size: 14px; font-family: inherit; color: var(--text);
+    background: var(--gray-50); outline: none;
+  }
+  .form-group input:focus, .form-group textarea:focus { border-color: var(--blue); background: #fff; }
+  #submit-report-btn {
+    width: 100%; padding: 14px; background: var(--blue); color: #fff;
+    border: none; border-radius: var(--radius); font-size: 15px; font-weight: 500;
+    cursor: pointer; font-family: inherit;
+  }
+
+  /* ── 마이페이지 ── */
+  #my-screen { overflow-y: auto; padding: 0 0 20px; }
+  .my-header { background: var(--blue); padding: 24px 16px 20px; }
+  .my-avatar { width: 56px; height: 56px; border-radius: 50%; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-size: 28px; margin-bottom: 10px; }
+  .my-name { color: #fff; font-size: 18px; font-weight: 700; }
+  .my-sub { color: rgba(255,255,255,0.7); font-size: 13px; margin-top: 2px; }
+  .my-stats { display: flex; gap: 1px; background: var(--gray-100); margin-bottom: 1px; }
+  .my-stat { flex: 1; background: #fff; padding: 16px; text-align: center; }
+  .my-stat-num { font-size: 20px; font-weight: 700; color: var(--blue); }
+  .my-stat-label { font-size: 11px; color: var(--gray-500); margin-top: 2px; }
+  .my-section { padding: 16px; }
+  .my-section-title { font-size: 12px; font-weight: 500; color: var(--gray-500); margin-bottom: 8px; letter-spacing: .05em; }
+  .my-menu-item {
+    display: flex; align-items: center; gap: 12px; padding: 13px 0;
+    border-bottom: 1px solid var(--gray-100); cursor: pointer; font-size: 14px;
+  }
+  .my-menu-item:last-child { border-bottom: none; }
+  .my-menu-icon { font-size: 20px; color: var(--gray-500); width: 24px; text-align: center; }
+  .my-menu-arrow { margin-left: auto; color: var(--gray-300); }
+
+  /* ── 토스트 ── */
+  #toast {
+    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+    background: #333; color: #fff; padding: 10px 20px; border-radius: 24px;
+    font-size: 13px; opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 100;
+    white-space: nowrap;
+  }
+  #toast.show { opacity: 1; }
+
+  /* ── 로딩 ── */
+  #loading {
+    position: fixed; inset: 0; background: var(--blue);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 999; transition: opacity .4s;
+  }
+  #loading.hide { opacity: 0; pointer-events: none; }
+  #loading-logo { color: #fff; font-size: 32px; font-weight: 700; margin-bottom: 8px; }
+  #loading-sub { color: rgba(255,255,255,0.7); font-size: 14px; }
+  #loading-spinner {
+    width: 32px; height: 32px; border: 3px solid rgba(255,255,255,0.3);
+    border-top-color: #fff; border-radius: 50%; margin-top: 24px;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* 카카오맵 커스텀 마커 */
+  .custom-marker {
+    background: var(--blue); color: #fff; border-radius: 50%;
+    width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+    font-size: 16px; border: 2px solid #fff; box-shadow: var(--shadow);
+    cursor: pointer;
+  }
+  .custom-marker.green { background: var(--green); }
+  .custom-marker.amber { background: var(--amber); }
+</style>
+</head>
+<body>
+
+<!-- 로딩 화면 -->
+<div id="loading">
+  <div id="loading-logo">🚻 CleanRest</div>
+  <div id="loading-sub">주변 화장실을 찾고 있어요...</div>
+  <div id="loading-spinner"></div>
+</div>
+
+<div id="app">
+
+  <!-- 헤더 -->
+  <div id="header">
+    <div id="header-logo">🚻 CleanRest <span id="header-area">· 현재 위치</span></div>
+    <button id="lang-btn" onclick="cycleLang()">🌐 언어</button>
+  </div>
+
+  <!-- ① 홈 화면 (지도 + 목록) -->
+  <div id="home-screen" class="screen active">
+    <div id="map-container">
+      <div id="map"></div>
+      <div id="search-overlay">
+        <div id="search-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="search-input" placeholder="화장실 검색 / Search / 搜索 / 検索">
+        </div>
+      </div>
+      <div id="filter-bar">
+        <button class="filter-chip active" onclick="filterBy('all', this)">전체</button>
+        <button class="filter-chip" onclick="filterBy('disabled', this)">♿ 장애인</button>
+        <button class="filter-chip" onclick="filterBy('allday', this)">🕐 24시간</button>
+        <button class="filter-chip" onclick="filterBy('baby', this)">👶 기저귀</button>
+        <button class="filter-chip" onclick="filterBy('open', this)">🏢 개방형</button>
+      </div>
+      <div id="my-loc-btn" onclick="moveToMyLocation()" title="내 위치로">📍</div>
+    </div>
+    <div id="list-panel">
+      <div id="list-handle" onclick="togglePanel()">
+        <div id="list-handle-bar"></div>
+      </div>
+      <div id="list-head">주변 화장실 <span id="list-count" style="color:var(--blue);font-weight:700"></span></div>
+      <div id="toilet-list"></div>
+    </div>
+  </div>
+
+  <!-- ② 상세 화면 -->
+  <div id="detail-screen" class="screen">
+    <div id="detail-img">
+      <div id="back-btn" onclick="showScreen('home')">←</div>
+      🚻
+    </div>
+    <div id="detail-body">
+      <div id="detail-name">화장실 이름</div>
+      <div id="detail-addr">주소</div>
+      <div id="detail-rating">
+        <span class="stars" id="detail-stars">★★★★★</span>
+        <span class="num" id="detail-num">4.8</span>
+        <span class="cnt" id="detail-cnt">(127개 리뷰)</span>
+      </div>
+      <div class="info-grid" id="detail-info-grid"></div>
+      <div class="nav-btns">
+        <button class="nav-btn nav-btn-kakao" id="kakao-nav-btn" onclick="openKakaoNav()">🗺 카카오맵 길안내</button>
+        <button class="nav-btn nav-btn-naver" id="naver-nav-btn" onclick="openNaverNav()">🗺 네이버맵</button>
+      </div>
+      <div class="section-title">이용자 리뷰</div>
+      <div id="detail-reviews"></div>
+      <button id="write-review-btn" onclick="showScreen('review')">✏️ 리뷰 작성하기</button>
+    </div>
+  </div>
+
+  <!-- ③ 리뷰 작성 화면 -->
+  <div id="review-screen" class="screen">
+    <div id="review-header">
+      <div id="review-back" onclick="showScreen('detail')">←</div>
+      <div id="review-title">리뷰 작성</div>
+    </div>
+    <div id="review-body">
+      <div class="review-form-section">
+        <div class="review-form-label">항목별 평가</div>
+        <div class="star-rating-row">
+          <div class="star-group">
+            <div class="star-group-label">청결도</div>
+            <div class="star-group-stars" id="stars-clean">
+              <span class="star-btn" data-group="clean" data-val="1">★</span>
+              <span class="star-btn" data-group="clean" data-val="2">★</span>
+              <span class="star-btn" data-group="clean" data-val="3">★</span>
+              <span class="star-btn" data-group="clean" data-val="4">★</span>
+              <span class="star-btn" data-group="clean" data-val="5">★</span>
+            </div>
+          </div>
+          <div class="star-group">
+            <div class="star-group-label">편의성</div>
+            <div class="star-group-stars" id="stars-convenient">
+              <span class="star-btn" data-group="convenient" data-val="1">★</span>
+              <span class="star-btn" data-group="convenient" data-val="2">★</span>
+              <span class="star-btn" data-group="convenient" data-val="3">★</span>
+              <span class="star-btn" data-group="convenient" data-val="4">★</span>
+              <span class="star-btn" data-group="convenient" data-val="5">★</span>
+            </div>
+          </div>
+          <div class="star-group">
+            <div class="star-group-label">접근성</div>
+            <div class="star-group-stars" id="stars-access">
+              <span class="star-btn" data-group="access" data-val="1">★</span>
+              <span class="star-btn" data-group="access" data-val="2">★</span>
+              <span class="star-btn" data-group="access" data-val="3">★</span>
+              <span class="star-btn" data-group="access" data-val="4">★</span>
+              <span class="star-btn" data-group="access" data-val="5">★</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="review-form-section">
+        <div class="review-form-label">한 줄 리뷰</div>
+        <textarea id="review-text-input" placeholder="화장실 이용 후 솔직한 리뷰를 남겨주세요 (한국어, 영어, 중국어, 일본어 모두 가능)" rows="4"></textarea>
+        <div class="trans-notice">📢 리뷰는 자동으로 4개 언어로 번역되어 표시됩니다</div>
+      </div>
+      <div class="review-form-section">
+        <div class="review-form-label">사진 첨부 (선택, 최대 3장)</div>
+        <div class="photo-row" id="photo-row">
+          <div class="photo-add" onclick="addPhoto()">+</div>
+        </div>
+        <input type="file" id="photo-input" accept="image/*" multiple style="display:none" onchange="handlePhotoSelect(event)">
+      </div>
+      <button id="submit-review-btn" onclick="submitReview()">리뷰 등록하기</button>
+    </div>
+  </div>
+
+  <!-- ④ 제보 화면 -->
+  <div id="report-screen" class="screen">
+    <div id="report-header">
+      <div id="review-title">🚨 화장실 제보하기</div>
+    </div>
+    <div id="report-body">
+      <p style="font-size:13px;color:var(--gray-500);margin-bottom:20px">앱에 없는 화장실을 알려주세요! 검토 후 등록해드립니다.</p>
+      <div class="form-group">
+        <label>화장실 이름 *</label>
+        <input type="text" id="report-name" placeholder="예: 홍대입구역 1번 출구 화장실">
+      </div>
+      <div class="form-group">
+        <label>주소 *</label>
+        <input type="text" id="report-addr" placeholder="예: 서울 마포구 와우산로 23">
+      </div>
+      <div class="form-group">
+        <label>운영시간</label>
+        <select id="report-hours">
+          <option>24시간</option>
+          <option>06:00~22:00</option>
+          <option>07:00~21:00</option>
+          <option>기타</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>추가 정보</label>
+        <textarea rows="3" placeholder="장애인 시설, 기저귀 교환대 등 특이사항을 적어주세요"></textarea>
+      </div>
+      <button id="submit-report-btn" onclick="submitReport()">제보 접수하기</button>
+    </div>
+  </div>
+
+  <!-- ⑤ 마이페이지 -->
+  <div id="my-screen" class="screen">
+    <div class="my-header">
+      <div class="my-avatar">😊</div>
+      <div class="my-name" id="my-lang-name">한국어 / Korean</div>
+      <div class="my-sub">언어 설정을 변경하세요</div>
+    </div>
+    <div class="my-stats">
+      <div class="my-stat"><div class="my-stat-num">0</div><div class="my-stat-label">작성한 리뷰</div></div>
+      <div class="my-stat"><div class="my-stat-num">0</div><div class="my-stat-label">저장한 곳</div></div>
+      <div class="my-stat"><div class="my-stat-num">0</div><div class="my-stat-label">제보 수</div></div>
+    </div>
+    <div class="my-section">
+      <div class="my-section-title">언어 선택 / Language</div>
+      <div class="my-menu-item" onclick="setLang('ko')"><span class="my-menu-icon">🇰🇷</span> 한국어 <span class="my-menu-arrow">›</span></div>
+      <div class="my-menu-item" onclick="setLang('en')"><span class="my-menu-icon">🇺🇸</span> English <span class="my-menu-arrow">›</span></div>
+      <div class="my-menu-item" onclick="setLang('zh')"><span class="my-menu-icon">🇨🇳</span> 中文 (简体) <span class="my-menu-arrow">›</span></div>
+      <div class="my-menu-item" onclick="setLang('ja')"><span class="my-menu-icon">🇯🇵</span> 日本語 <span class="my-menu-arrow">›</span></div>
+    </div>
+    <div class="my-section">
+      <div class="my-section-title">앱 정보</div>
+      <div class="my-menu-item"><span class="my-menu-icon">ℹ️</span> CleanRest v1.0.0 <span class="my-menu-arrow">›</span></div>
+      <div class="my-menu-item"><span class="my-menu-icon">📧</span> 문의하기 <span class="my-menu-arrow">›</span></div>
+      <div class="my-menu-item" onclick="showScreen('report')"><span class="my-menu-icon">🚨</span> 화장실 제보 <span class="my-menu-arrow">›</span></div>
+    </div>
+  </div>
+
+  <!-- 하단 네비 -->
+  <div id="navbar">
+    <div class="nb-item active" id="nav-home" onclick="showScreen('home')"><span class="nb-icon">🗺</span>지도</div>
+    <div class="nb-item" id="nav-saved" onclick="showToast('준비 중입니다')"><span class="nb-icon">❤️</span>저장</div>
+    <div class="nb-item" id="nav-report" onclick="showScreen('report')"><span class="nb-icon">➕</span>제보</div>
+    <div class="nb-item" id="nav-my" onclick="showScreen('my')"><span class="nb-icon">😊</span>마이</div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════
+// 🗂 샘플 화장실 데이터 (실제 서비스에서는 공공데이터 API로 교체)
+// ═══════════════════════════════════════
+const TOILETS = [
+  {
+    id: 1, name: '명동 CGV 앞 공중화장실',
+    addr: '서울 중구 명동길 26', lat: 37.5636, lng: 126.9869,
+    rating: 4.8, reviewCount: 127, hours: '24시간',
+    disabled: true, baby: true, allday: true, open: true,
+    maleCount: 4, femaleCount: 5,
+    quality: 'green',
+    reviews: [
+      { flag: '🇨🇳', stars: 5, date: '2일 전', text: '非常干净！值得推荐', trans: '매우 깨끗해요! 추천합니다' },
+      { flag: '🇯🇵', stars: 4, date: '4일 전', text: '清潔でした。少し混んでいます', trans: '깨끗했어요. 조금 붐빕니다' },
+      { flag: '🇺🇸', stars: 5, date: '1주 전', text: 'Very clean and easy to find!', trans: '매우 깨끗하고 찾기 쉬워요!' }
+    ]
+  },
+  {
+    id: 2, name: '명동역 2번 출구 화장실',
+    addr: '서울 중구 명동2가 52', lat: 37.5632, lng: 126.9827,
+    rating: 3.2, reviewCount: 45, hours: '05:30~24:00',
+    disabled: true, baby: false, allday: false, open: false,
+    maleCount: 3, femaleCount: 3,
+    quality: 'amber',
+    reviews: [
+      { flag: '🇰🇷', stars: 3, date: '3일 전', text: '지하철 이용 중 급하게 사용. 청결도는 보통이에요', trans: '' },
+      { flag: '🇨🇳', stars: 3, date: '1주 전', text: '一般般，还行', trans: '그저 그래요, 괜찮아요' }
+    ]
+  },
+  {
+    id: 3, name: '롯데백화점 본점 공중화장실',
+    addr: '서울 중구 남대문로 81', lat: 37.5649, lng: 126.9816,
+    rating: 4.5, reviewCount: 89, hours: '10:30~22:00',
+    disabled: true, baby: true, allday: false, open: true,
+    maleCount: 6, femaleCount: 8,
+    quality: 'green',
+    reviews: [
+      { flag: '🇯🇵', stars: 5, date: '1일 전', text: 'とても綺麗で快適でした！', trans: '매우 깨끗하고 쾌적했어요!' }
+    ]
+  },
+  {
+    id: 4, name: '을지로입구역 공중화장실',
+    addr: '서울 중구 을지로 지하30', lat: 37.5660, lng: 126.9823,
+    rating: 3.8, reviewCount: 33, hours: '05:30~24:00',
+    disabled: true, baby: false, allday: false, open: false,
+    maleCount: 2, femaleCount: 2,
+    quality: 'amber',
+    reviews: []
+  },
+  {
+    id: 5, name: '남산공원 화장실 (북측)',
+    addr: '서울 중구 소파로 104', lat: 37.5511, lng: 126.9882,
+    rating: 4.1, reviewCount: 62, hours: '24시간',
+    disabled: false, baby: false, allday: true, open: true,
+    maleCount: 3, femaleCount: 3,
+    quality: 'green',
+    reviews: [
+      { flag: '🇺🇸', stars: 4, date: '2일 전', text: 'Clean enough for a park restroom!', trans: '공원 화장실치고 깨끗해요!' }
+    ]
+  }
+];
+
+// ═══════════════════════════════════════
+// 🌐 다국어 설정
+// ═══════════════════════════════════════
+const LANGS = {
+  ko: {
+    search: '화장실 검색 / Search / 搜索 / 検索',
+    nearby: '주변 화장실',
+    nav_kakao: '🗺 카카오맵 길안내',
+    nav_naver: '🗺 네이버맵',
+    write_review: '✏️ 리뷰 작성하기',
+    submit_review: '리뷰 등록하기',
+    name: '한국어',
+    flag: '🇰🇷'
+  },
+  en: {
+    search: 'Search restrooms near me...',
+    nearby: 'Nearby Restrooms',
+    nav_kakao: '🗺 KakaoMap Directions',
+    nav_naver: '🗺 NaverMap',
+    write_review: '✏️ Write a Review',
+    submit_review: 'Submit Review',
+    name: 'English',
+    flag: '🇺🇸'
+  },
+  zh: {
+    search: '搜索附近厕所...',
+    nearby: '附近卫生间',
+    nav_kakao: '🗺 Kakao地图导航',
+    nav_naver: '🗺 Naver地图',
+    write_review: '✏️ 写评论',
+    submit_review: '提交评论',
+    name: '中文',
+    flag: '🇨🇳'
+  },
+  ja: {
+    search: '近くのトイレを検索...',
+    nearby: '近くのトイレ',
+    nav_kakao: '🗺 カカオマップ案内',
+    nav_naver: '🗺 ネイバーマップ',
+    write_review: '✏️ レビューを書く',
+    submit_review: 'レビューを投稿',
+    name: '日本語',
+    flag: '🇯🇵'
+  }
+};
+
+let currentLang = 'ko';
+const langOrder = ['ko', 'en', 'zh', 'ja'];
+
+function cycleLang() {
+  const idx = langOrder.indexOf(currentLang);
+  setLang(langOrder[(idx + 1) % langOrder.length]);
+}
+
+function setLang(lang) {
+  currentLang = lang;
+  const t = LANGS[lang];
+  document.getElementById('search-input').placeholder = t.search;
+  document.getElementById('list-head').innerHTML = t.nearby + ' <span id="list-count" style="color:var(--blue);font-weight:700">' + filteredToilets.length + '곳</span>';
+  document.getElementById('lang-btn').textContent = t.flag + ' ' + t.name;
+  document.getElementById('kakao-nav-btn').textContent = t.nav_kakao;
+  document.getElementById('naver-nav-btn').textContent = t.nav_naver;
+  document.getElementById('write-review-btn').textContent = t.write_review;
+  document.getElementById('submit-review-btn').textContent = t.submit_review;
+  document.getElementById('my-lang-name').textContent = t.name;
+  showToast(t.flag + ' ' + t.name + '로 변경됐어요');
+}
+
+// ═══════════════════════════════════════
+// 🗺 카카오맵 초기화
+// ═══════════════════════════════════════
+let map, markers = [], infowindow, currentToilet = null;
+let userLat = 37.5636, userLng = 126.9869; // 기본: 명동
+let filteredToilets = [...TOILETS];
+let panelOpen = true;
+
+function initMap() {
+  const container = document.getElementById('map');
+  const options = {
+    center: new kakao.maps.LatLng(userLat, userLng),
+    level: 4
+  };
+  map = new kakao.maps.Map(container, options);
+  infowindow = new kakao.maps.InfoWindow({ zIndex: 1 });
+
+  // 내 위치 마커
+  const myMarker = new kakao.maps.CustomOverlay({
+    position: new kakao.maps.LatLng(userLat, userLng),
+    content: '<div style="width:14px;height:14px;background:#1A56A8;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 4px rgba(26,86,168,0.25)"></div>',
+    zIndex: 10
+  });
+  myMarker.setMap(map);
+
+  renderMarkers(TOILETS);
+  renderList(TOILETS);
+  hideLodaing();
+}
+
+function renderMarkers(toilets) {
+  markers.forEach(m => m.setMap(null));
+  markers = [];
+  toilets.forEach(t => {
+    const colors = { green: '#1D9E75', amber: '#BA7517', red: '#E24B4A' };
+    const color = colors[t.quality] || '#1A56A8';
+    const el = document.createElement('div');
+    el.style.cssText = `width:32px;height:32px;border-radius:50%;background:${color};color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.2);cursor:pointer`;
+    el.innerHTML = '🚻';
+    const marker = new kakao.maps.CustomOverlay({
+      position: new kakao.maps.LatLng(t.lat, t.lng),
+      content: el,
+      yAnchor: 1
+    });
+    el.addEventListener('click', () => openDetail(t));
+    marker.setMap(map);
+    markers.push(marker);
+  });
+}
+
+function renderList(toilets) {
+  filteredToilets = toilets;
+  const list = document.getElementById('toilet-list');
+  const cnt = document.getElementById('list-count');
+  if (cnt) cnt.textContent = toilets.length + '곳';
+
+  if (!toilets.length) {
+    list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--gray-500)">조건에 맞는 화장실이 없어요</div>';
+    return;
+  }
+
+  list.innerHTML = toilets.map(t => {
+    const stars = '★'.repeat(Math.round(t.rating)) + '☆'.repeat(5 - Math.round(t.rating));
+    const tags = [];
+    if (t.allday) tags.push('<span class="tag tag-blue">24시간</span>');
+    if (t.disabled) tags.push('<span class="tag">♿ 장애인</span>');
+    if (t.baby) tags.push('<span class="tag">👶 기저귀</span>');
+    return `<div class="toilet-card" onclick="openDetail(TOILETS.find(x=>x.id==${t.id}))">
+      <div class="tc-dot dot-${t.quality}"></div>
+      <div class="tc-body">
+        <div class="tc-name">${t.name}</div>
+        <div class="tc-addr">${t.addr}</div>
+        <div class="tc-tags">${tags.join('')}</div>
+      </div>
+      <div class="tc-right">
+        <div class="tc-dist">${getDist(t.lat, t.lng)}</div>
+        <div class="tc-stars">${stars} ${t.rating}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function getDist(lat, lng) {
+  const R = 6371000;
+  const dLat = (lat - userLat) * Math.PI / 180;
+  const dLng = (lng - userLng) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(userLat*Math.PI/180)*Math.cos(lat*Math.PI/180)*Math.sin(dLng/2)**2;
+  const d = Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+  return d < 1000 ? d + 'm' : (d/1000).toFixed(1) + 'km';
+}
+
+// ═══════════════════════════════════════
+// 📍 내 위치
+// ═══════════════════════════════════════
+function moveToMyLocation() {
+  if (!navigator.geolocation) { showToast('위치 정보를 사용할 수 없어요'); return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    userLat = pos.coords.latitude;
+    userLng = pos.coords.longitude;
+    map.setCenter(new kakao.maps.LatLng(userLat, userLng));
+    showToast('내 위치로 이동했어요 📍');
+  }, () => {
+    showToast('위치 권한을 허용해주세요');
+  });
+}
+
+// ═══════════════════════════════════════
+// 🔍 검색 & 필터
+// ═══════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('search-input').addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    const result = q ? TOILETS.filter(t => t.name.toLowerCase().includes(q) || t.addr.toLowerCase().includes(q)) : TOILETS;
+    renderMarkers(result);
+    renderList(result);
+  });
+});
+
+let activeFilter = 'all';
+function filterBy(type, el) {
+  activeFilter = type;
+  document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  const result = type === 'all' ? TOILETS : TOILETS.filter(t => t[type]);
+  renderMarkers(result);
+  renderList(result);
+}
+
+// ═══════════════════════════════════════
+// 📋 상세 화면
+// ═══════════════════════════════════════
+function openDetail(t) {
+  currentToilet = t;
+  document.getElementById('detail-name').textContent = t.name;
+  document.getElementById('detail-addr').textContent = '📍 ' + t.addr;
+  document.getElementById('detail-num').textContent = t.rating;
+  document.getElementById('detail-cnt').textContent = '(' + t.reviewCount + '개 리뷰)';
+
+  const stars = '★'.repeat(Math.round(t.rating)) + '☆'.repeat(5 - Math.round(t.rating));
+  document.getElementById('detail-stars').textContent = stars;
+
+  document.getElementById('detail-info-grid').innerHTML = `
+    <div class="info-cell"><div class="info-label">운영시간</div><div class="info-val ok">${t.hours}</div></div>
+    <div class="info-cell"><div class="info-label">장애인 시설</div><div class="info-val ${t.disabled ? 'ok' : 'no'}">${t.disabled ? '✅ 있음' : '❌ 없음'}</div></div>
+    <div class="info-cell"><div class="info-label">기저귀 교환대</div><div class="info-val ${t.baby ? 'ok' : 'no'}">${t.baby ? '✅ 있음' : '❌ 없음'}</div></div>
+    <div class="info-cell"><div class="info-label">남/여 칸 수</div><div class="info-val">${t.maleCount}칸 / ${t.femaleCount}칸</div></div>
+  `;
+
+  document.getElementById('detail-reviews').innerHTML = t.reviews.length
+    ? t.reviews.map(r => `
+      <div class="review-item">
+        <div class="review-meta">
+          <span class="review-flag">${r.flag}</span>
+          <span class="review-stars">${'★'.repeat(r.stars)}${'☆'.repeat(5-r.stars)}</span>
+          <span class="review-date">${r.date}</span>
+        </div>
+        <div class="review-text">${r.text}</div>
+        ${r.trans ? '<div class="review-trans">🔄 ' + r.trans + '</div>' : ''}
+      </div>`).join('')
+    : '<div style="color:var(--gray-500);font-size:13px;padding:12px 0">아직 리뷰가 없어요. 첫 리뷰를 남겨보세요!</div>';
+
+  showScreen('detail');
+}
+
+// ═══════════════════════════════════════
+// 🗺 길안내 연동
+// ═══════════════════════════════════════
+function openKakaoNav() {
+  if (!currentToilet) return;
+  const url = `kakaomap://route?ep=${currentToilet.lat},${currentToilet.lng}&by=FOOT`;
+  window.location.href = url;
+  setTimeout(() => {
+    window.open(`https://map.kakao.com/link/to/${encodeURIComponent(currentToilet.name)},${currentToilet.lat},${currentToilet.lng}`, '_blank');
+  }, 1000);
+}
+
+function openNaverNav() {
+  if (!currentToilet) return;
+  const url = `nmap://navigation?dlat=${currentToilet.lat}&dlng=${currentToilet.lng}&dname=${encodeURIComponent(currentToilet.name)}&appname=cleanrest`;
+  window.location.href = url;
+  setTimeout(() => {
+    window.open(`https://map.naver.com/index.nhn?slng=${userLng}&slat=${userLat}&stext=현재위치&elng=${currentToilet.lng}&elat=${currentToilet.lat}&etext=${encodeURIComponent(currentToilet.name)}&menu=route&pathType=1`, '_blank');
+  }, 1000);
+}
+
+// ═══════════════════════════════════════
+// ✏️ 리뷰 작성
+// ═══════════════════════════════════════
+const ratings = { clean: 0, convenient: 0, access: 0 };
+let reviewPhotos = [];
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.star-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const group = btn.dataset.group;
+      const val = parseInt(btn.dataset.val);
+      ratings[group] = val;
+      document.querySelectorAll(`.star-btn[data-group="${group}"]`).forEach(s => {
+        s.classList.toggle('active', parseInt(s.dataset.val) <= val);
+      });
+    });
+  });
+});
+
+function addPhoto() { document.getElementById('photo-input').click(); }
+function handlePhotoSelect(e) {
+  const files = Array.from(e.target.files).slice(0, 3 - reviewPhotos.length);
+  files.forEach(f => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      reviewPhotos.push(ev.target.result);
+      updatePhotoRow();
+    };
+    reader.readAsDataURL(f);
+  });
+}
+function updatePhotoRow() {
+  const row = document.getElementById('photo-row');
+  row.innerHTML = reviewPhotos.map(src => `<img class="photo-thumb" src="${src}">`).join('');
+  if (reviewPhotos.length < 3) row.innerHTML += '<div class="photo-add" onclick="addPhoto()">+</div>';
+}
+
+function submitReview() {
+  const text = document.getElementById('review-text-input').value.trim();
+  if (!text) { showToast('리뷰 내용을 입력해주세요'); return; }
+  const avgRating = Math.round((ratings.clean + ratings.convenient + ratings.access) / 3) || 4;
+  if (currentToilet) {
+    currentToilet.reviews.unshift({
+      flag: LANGS[currentLang].flag,
+      stars: avgRating,
+      date: '방금 전',
+      text: text,
+      trans: ''
+    });
+    currentToilet.reviewCount++;
+  }
+  document.getElementById('review-text-input').value = '';
+  reviewPhotos = [];
+  updatePhotoRow();
+  Object.keys(ratings).forEach(k => ratings[k] = 0);
+  document.querySelectorAll('.star-btn').forEach(s => s.classList.remove('active'));
+  showToast('리뷰가 등록됐어요! 감사합니다 ✨');
+  showScreen('detail');
+  if (currentToilet) openDetail(currentToilet);
+}
+
+// ═══════════════════════════════════════
+// 🚨 제보 접수
+// ═══════════════════════════════════════
+function submitReport() {
+  const name = document.getElementById('report-name').value.trim();
+  const addr = document.getElementById('report-addr').value.trim();
+  if (!name || !addr) { showToast('이름과 주소는 필수예요'); return; }
+  showToast('제보 접수됐어요! 검토 후 등록할게요 🙏');
+  document.getElementById('report-name').value = '';
+  document.getElementById('report-addr').value = '';
+  showScreen('home');
+}
+
+// ═══════════════════════════════════════
+// 🖥 화면 전환 & UI 유틸
+// ═══════════════════════════════════════
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(name + '-screen').classList.add('active');
+
+  // 네비 활성화
+  document.querySelectorAll('.nb-item').forEach(n => n.classList.remove('active'));
+  if (name === 'home') document.getElementById('nav-home').classList.add('active');
+  else if (name === 'my') document.getElementById('nav-my').classList.add('active');
+  else if (name === 'report') document.getElementById('nav-report').classList.add('active');
+
+  // 지도 화면 복귀 시 리사이즈
+  if (name === 'home' && map) {
+    setTimeout(() => {
+      kakao.maps.event.trigger(map, 'resize');
+      map.setCenter(new kakao.maps.LatLng(userLat, userLng));
+    }, 50);
+  }
+}
+
+function togglePanel() {
+  const panel = document.getElementById('list-panel');
+  panelOpen = !panelOpen;
+  panel.style.maxHeight = panelOpen ? '52%' : '48px';
+}
+
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2500);
+}
+
+function hideLodaing() {
+  setTimeout(() => document.getElementById('loading').classList.add('hide'), 800);
+}
+
+// ═══════════════════════════════════════
+// 🚀 카카오맵 로드 후 초기화
+// ═══════════════════════════════════════
+window.onload = function() {
+  if (typeof kakao !== 'undefined' && kakao.maps) {
+    kakao.maps.load(initMap);
+  } else {
+    // API 키 미입력 시 안내
+    document.getElementById('loading').innerHTML = `
+      <div style="text-align:center;padding:32px">
+        <div style="font-size:48px;margin-bottom:16px">🔑</div>
+        <div style="color:#fff;font-size:18px;font-weight:700;margin-bottom:8px">카카오맵 API 키를 입력해주세요</div>
+        <div style="color:rgba(255,255,255,0.7);font-size:14px;line-height:1.6">
+          코드 파일 상단의<br>
+          <code style="background:rgba(255,255,255,0.2);padding:2px 8px;border-radius:4px">YOUR_KAKAO_JS_KEY</code><br>
+          부분에 발급받은 JavaScript 키를 넣어주세요
+        </div>
+      </div>`;
+  }
+};
+</script>
+
+</body>
+</html>
